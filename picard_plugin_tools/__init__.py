@@ -142,3 +142,59 @@ def validate_plugin(archive_path):
         if md5file.read() == md5(source.read()).hexdigest():
             return True
     return False
+
+
+def package_folder(plugin_dir, manifest_path=None, dest=None):
+
+    plugin_files = []
+    parent_dir = os.path.dirname(plugin_dir)
+
+    for root, dirs, filenames in os.walk(plugin_dir):
+        for filename in filenames:
+            file_path = os.path.join(root, filename)
+            plugin_files.append(file_path)
+
+    if not dest:
+        archive_path = os.path.basename(os.path.normpath(plugin_dir)) + ".picard.zip"
+    else:
+        archive_path = dest
+
+    archive = zipfile.ZipFile(archive_path, "w")
+
+    if len(plugin_files) == 1:
+        # There's only one file, put it directly into the zipfile
+        archive.write(plugin_files[0],
+                      os.path.basename(plugin_files[0]),
+                      compress_type=zipfile.ZIP_DEFLATED)
+    else:
+        for filename in plugin_files:
+            # Preserve the folder structure relative to source_dir
+            # in the zip file
+            name_in_zip = os.path.join(os.path.relpath(filename,
+                                                       parent_dir))
+            archive.write(filename,
+                          name_in_zip,
+                          compress_type=zipfile.ZIP_DEFLATED)
+    info_list = [{'filename': file.filename, 'crc': file.CRC} for file in archive.infolist()]
+    if manifest_path and os.path.exists(manifest_path):
+        with open(manifest_path) as f:
+            manifest_data = json.load(f)
+            manifest_data['files'] = info_list
+        with open(manifest_path, 'w') as f:
+            json.dump(manifest_data, f)
+        archive.write(manifest_path,
+                      'MANIFEST.json',
+                      compress_type=zipfile.ZIP_DEFLATED)
+    info_list = archive.infolist()
+
+
+def verify_package(archive_path):
+    archive = zipfile.ZipFile(archive_path)
+    info_list = [{'filename': file.filename, 'crc': file.CRC} for file in archive.infolist() if file.filename != "MANIFEST.json"]
+    with archive.open('MANIFEST.json') as f:
+        verification_data = json.loads(str(f.read().decode()))['files']
+        if info_list == verification_data:
+            return True
+        else:
+            return False
+    return False
