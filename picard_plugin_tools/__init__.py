@@ -1,23 +1,67 @@
 import ast
-import os
 import json
+import os
+import re
 import zipfile
 
 from hashlib import md5
 
+import click
+
 # The file that contains json data
 PLUGIN_FILE_NAME = "PLUGINS.json"
 
+URL_REGEX = r"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)"
+VERSION_REGEX = r"(?:(\d+\.(?:\d+\.)*\d+))"
 
-KNOWN_DATA = [
-    'PLUGIN_NAME',
-    'PLUGIN_AUTHOR',
-    'PLUGIN_VERSION',
-    'PLUGIN_API_VERSIONS',
-    'PLUGIN_LICENSE',
-    'PLUGIN_LICENSE_URL',
-    'PLUGIN_DESCRIPTION',
-]
+
+class VersionString(click.ParamType):
+    name = "version_string"
+
+    def convert(self, value, param, ctx):
+        if not re.match(VERSION_REGEX, value):
+            self.fail('%s is not a valid version string' % value, param, ctx)
+        else:
+            return value
+
+
+class APIVersions(click.ParamType):
+    name = "api_versions"
+
+    def convert(self, value, param, ctx):
+        api_versions = value.split(",")
+        if not len(api_versions):
+            self.fail('%s are not valid api versions' % value, param, ctx)
+        for api_version in api_versions:
+            if not re.match(VERSION_REGEX, api_version):
+                self.fail('%s is not a valid API version' % api_version, param, ctx)
+        else:
+            return api_versions
+
+
+class URLString(click.ParamType):
+    name = "url_string"
+
+    def convert(self, value, param, ctx):
+        if not re.match(URL_REGEX, value):
+            self.fail('%s is not a valid URL' % value, param, ctx)
+        else:
+            return value
+
+
+VERSION_STRING = VersionString()
+API_VERSIONS = APIVersions()
+URL_STRING = URLString()
+
+KNOWN_DATA = {
+    'PLUGIN_NAME': {'name': 'Plugin Name', 'type': str},
+    'PLUGIN_AUTHOR': {'name': 'Plugin Author Name', 'type': str},
+    'PLUGIN_VERSION': {'name': 'Plugin Version', 'type': VERSION_STRING},
+    'PLUGIN_API_VERSIONS': {'name': 'comma-separated Supported API Versions', 'type': API_VERSIONS},
+    'PLUGIN_LICENSE': {'name': 'Plugin License', 'type': str},
+    'PLUGIN_LICENSE_URL': {'name': 'License URL', 'type': URL_STRING},
+    'PLUGIN_DESCRIPTION': {'name': 'Plugin Description', 'type': str},
+}
 
 
 def get_plugin_data(filepath):
@@ -198,3 +242,18 @@ def verify_package(archive_path):
         else:
             return False
     return False
+
+
+def load_manifest(archive_path):
+    archive = zipfile.ZipFile(archive_path)
+    with archive.open('MANIFEST.json') as f:
+        manifest_data = json.loads(str(f.read().decode()))
+        return manifest_data
+
+
+def create_basic_manifest(manifest_path):
+    manifest_data = {}
+    for key, value in KNOWN_DATA.items():
+        manifest_data[key] = click.prompt("Please input %s" % value['name'], type=value['type'])
+    with open(manifest_path, 'w') as f:
+        json.dump(manifest_data, f)
