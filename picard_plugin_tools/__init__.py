@@ -12,7 +12,12 @@ import click
 PLUGIN_FILE_NAME = "PLUGINS.json"
 
 URL_REGEX = r"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)"
-VERSION_REGEX = r"(?:(\d+\.(?:\d+\.)*\d+))"
+VERSION_REGEX = r"(\d+\.(\d+\.)*\d+)"
+
+
+# ===================================
+# Classes to validate manifest inputs
+# ===================================
 
 
 class VersionString(click.ParamType):
@@ -29,7 +34,7 @@ class APIVersions(click.ParamType):
     name = "api_versions"
 
     def convert(self, value, param, ctx):
-        api_versions = value.split(",")
+        api_versions = [v.strip() for v in value.split(",")]
         if not len(api_versions):
             self.fail('%s are not valid api versions' % value, param, ctx)
         for api_version in api_versions:
@@ -49,17 +54,13 @@ class URLString(click.ParamType):
             return value
 
 
-VERSION_STRING = VersionString()
-API_VERSIONS = APIVersions()
-URL_STRING = URLString()
-
 KNOWN_DATA = {
     'PLUGIN_NAME': {'name': 'Plugin Name', 'type': str},
     'PLUGIN_AUTHOR': {'name': 'Plugin Author Name', 'type': str},
-    'PLUGIN_VERSION': {'name': 'Plugin Version', 'type': VERSION_STRING},
-    'PLUGIN_API_VERSIONS': {'name': 'comma-separated Supported API Versions', 'type': API_VERSIONS},
+    'PLUGIN_VERSION': {'name': 'Plugin Version', 'type': VersionString()},
+    'PLUGIN_API_VERSIONS': {'name': 'comma-separated Supported API Versions', 'type': APIVersions()},
     'PLUGIN_LICENSE': {'name': 'Plugin License', 'type': str},
-    'PLUGIN_LICENSE_URL': {'name': 'License URL', 'type': URL_STRING},
+    'PLUGIN_LICENSE_URL': {'name': 'License URL', 'type': URLString()},
     'PLUGIN_DESCRIPTION': {'name': 'Plugin Description', 'type': str},
 }
 
@@ -251,9 +252,27 @@ def load_manifest(archive_path):
         return manifest_data
 
 
-def create_basic_manifest(manifest_path):
-    manifest_data = {}
+def create_basic_manifest(manifest_path, manifest_data=None, missing_fields=KNOWN_DATA):
+    if not manifest_data:
+        manifest_data = {}
     for key, value in KNOWN_DATA.items():
-        manifest_data[key] = click.prompt("Please input %s" % value['name'], type=value['type'])
+        if key in missing_fields:
+            manifest_data[key] = click.prompt("Please input %s" % value['name'], type=value['type'])
     with open(manifest_path, 'w') as f:
-        json.dump(manifest_data, f)
+        json.dump(manifest_data, f, indent=2)
+    return manifest_data
+
+
+def verify_manifest(manifest_path):
+    try:
+        manifest_data = json.load(open(manifest_path))
+    except (FileNotFoundError, OSError):
+        click.echo("Unable to find or read manifest file.")
+    except json.decoder.JSONDecodeError:
+        click.echo("Manifest is damaged. Invalid JSON file.")
+    else:
+        missing_fields = set(KNOWN_DATA.keys()) - set(manifest_data.keys())
+        if missing_fields:
+            click.echo("Manifest incomplete. Following data not found: %s" % ", ".join(missing_fields))
+            if click.confirm("Would you like to fill this data now?"):
+                manifest_data = create_manifest(manifest_path, manifest_data, missing_fields)
