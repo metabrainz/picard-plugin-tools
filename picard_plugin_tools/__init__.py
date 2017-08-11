@@ -40,8 +40,7 @@ class APIVersions(click.ParamType):
         for api_version in api_versions:
             if not re.match(VERSION_REGEX, api_version):
                 self.fail('%s is not a valid API version' % api_version, param, ctx)
-        else:
-            return api_versions
+        return api_versions
 
 
 class URLString(click.ParamType):
