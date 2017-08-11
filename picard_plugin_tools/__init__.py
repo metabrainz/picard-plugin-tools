@@ -189,6 +189,15 @@ def validate_plugin(archive_path):
     return False
 
 
+@click.group()
+def cli():
+    pass
+
+
+@cli.command()
+@click.argument('plugin_dir', type=click.Path(exists=True))
+@click.argument('manifest_path', type=click.Path(exists=True), required=False)
+@click.argument('dest', type=click.Path(exists=True), required=False)
 def package_folder(plugin_dir, manifest_path=None, dest=None):
 
     plugin_files = []
@@ -233,6 +242,8 @@ def package_folder(plugin_dir, manifest_path=None, dest=None):
     info_list = archive.infolist()
 
 
+@cli.command()
+@click.argument('archive_path', type=click.Path(exists=True))
 def verify_package(archive_path):
     archive = zipfile.ZipFile(archive_path)
     info_list = [{'filename': file.filename, 'crc': file.CRC} for file in archive.infolist() if file.filename != "MANIFEST.json"]
@@ -252,6 +263,8 @@ def load_manifest(archive_path):
         return manifest_data
 
 
+@cli.command()
+@click.argument('manifest_path', type=click.Path())
 def create_basic_manifest(manifest_path, manifest_data=None, missing_fields=KNOWN_DATA):
     if not manifest_data:
         manifest_data = {}
@@ -263,6 +276,8 @@ def create_basic_manifest(manifest_path, manifest_data=None, missing_fields=KNOW
     return manifest_data
 
 
+@cli.command()
+@click.argument('manifest_path', type=click.Path(exists=True))
 def verify_manifest(manifest_path):
     try:
         manifest_data = json.load(open(manifest_path))
@@ -276,3 +291,10 @@ def verify_manifest(manifest_path):
             click.echo("Manifest incomplete. Following data not found: %s" % ", ".join(missing_fields))
             if click.confirm("Would you like to fill this data now?"):
                 manifest_data = create_manifest(manifest_path, manifest_data, missing_fields)
+        click.echo("Manifest Verified!")
+        click.echo("="*20)
+        click.echo("MANIFEST: {}".format(manifest_path))
+        click.echo("-"*20)
+        for key, value in manifest_data.items():
+            click.echo("{}: {}".format(key, value))
+        click.echo("="*20)
