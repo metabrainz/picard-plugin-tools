@@ -262,9 +262,11 @@ def load_manifest(archive_path):
         return manifest_data
 
 
-def _create_manifest(manifest_path, manifest_data=None, missing_fields=KNOWN_DATA):
+def _create_manifest(manifest_path, manifest_data=None, missing_fields=None):
     if not manifest_data:
         manifest_data = {}
+    if not missing_fields:
+        missing_fields = KNOWN_DATA
     for key, value in KNOWN_DATA.items():
         if key in missing_fields:
             manifest_data[key] = click.prompt("Please input %s" % value['name'], type=value['type'])
