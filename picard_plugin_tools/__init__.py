@@ -263,9 +263,7 @@ def load_manifest(archive_path):
         return manifest_data
 
 
-@cli.command()
-@click.argument('manifest_path', type=click.Path())
-def create_basic_manifest(manifest_path, manifest_data=None, missing_fields=KNOWN_DATA):
+def _create_manifest(manifest_path, manifest_data=None, missing_fields=KNOWN_DATA):
     if not manifest_data:
         manifest_data = {}
     for key, value in KNOWN_DATA.items():
@@ -274,6 +272,12 @@ def create_basic_manifest(manifest_path, manifest_data=None, missing_fields=KNOW
     with open(manifest_path, 'w') as f:
         json.dump(manifest_data, f, indent=2)
     return manifest_data
+
+
+@cli.command()
+@click.argument('manifest_path', type=click.Path())
+def create_basic_manifest(manifest_path):
+    _create_manifest(manifest_path)
 
 
 @cli.command()
@@ -290,7 +294,7 @@ def verify_manifest(manifest_path):
         if missing_fields:
             click.echo("Manifest incomplete. Following data not found: %s" % ", ".join(missing_fields))
             if click.confirm("Would you like to fill this data now?"):
-                manifest_data = create_manifest(manifest_path, manifest_data, missing_fields)
+                manifest_data = _create_manifest(manifest_path, manifest_data, missing_fields)
         click.echo("Manifest Verified!")
         click.echo("="*20)
         click.echo("MANIFEST: {}".format(manifest_path))
