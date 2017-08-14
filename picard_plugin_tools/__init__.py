@@ -195,10 +195,17 @@ def cli():
 
 @cli.command()
 @click.argument('plugin_dir', type=click.Path(exists=True))
-@click.argument('manifest_path', type=click.Path(exists=True), required=False)
-@click.argument('dest', type=click.Path(exists=True), required=False)
-def package_folder(plugin_dir, manifest_path=None, dest=None):
+@click.argument('manifest_path', type=click.Path(exists=True))
+@click.argument('output_path', type=click.Path(exists=True), required=False)
+def package_folder(plugin_dir, manifest_path, output_path=None):
+    """Creates a plugin package from a given unpackaged plugin folder
 
+    \b
+    Args:
+        plugin_dir: path to the unpackaged plugin directory
+        manifest_path: path to the json manifest for a given plugin
+        output_path: output path for the packaged plugin.
+    """
     plugin_files = []
     parent_dir = os.path.dirname(plugin_dir)
 
@@ -207,10 +214,10 @@ def package_folder(plugin_dir, manifest_path=None, dest=None):
             file_path = os.path.join(root, filename)
             plugin_files.append(file_path)
 
-    if not dest:
+    if not output_path:
         archive_path = os.path.basename(os.path.normpath(plugin_dir)) + ".picard.zip"
     else:
-        archive_path = dest
+        archive_path = output_path
 
     archive = zipfile.ZipFile(archive_path, "w")
 
@@ -244,6 +251,13 @@ def package_folder(plugin_dir, manifest_path=None, dest=None):
 @cli.command()
 @click.argument('archive_path', type=click.Path(exists=True))
 def verify_package(archive_path):
+    """Verifies the checksum of a packaged plugin and verifies its
+        integrity
+
+    \b
+    Args:
+        archive_path: path to the packaged plugin zip to be verified
+    """
     archive = zipfile.ZipFile(archive_path)
     info_list = [{'filename': file.filename, 'crc': file.CRC} for file in archive.infolist() if file.filename != "MANIFEST.json"]
     with archive.open('MANIFEST.json') as f:
@@ -278,12 +292,25 @@ def _create_manifest(manifest_path, manifest_data=None, missing_fields=None):
 @cli.command()
 @click.argument('manifest_path', type=click.Path())
 def create_basic_manifest(manifest_path):
+    """Creates a manifest file for a plugin with an interactive wizard.
+
+    \b
+    Args:
+        manifest_path: path where the json manifest will be created
+    """
     _create_manifest(manifest_path)
 
 
 @cli.command()
 @click.argument('manifest_path', type=click.Path(exists=True))
 def verify_manifest(manifest_path):
+    """Verifies if the manifest file for a plugin is valid and
+        prompts for missing fields.
+
+    \b
+    Args:
+        manifest_path: path to the json manifest to be verified
+    """
     try:
         manifest_data = json.load(open(manifest_path))
     except (FileNotFoundError, OSError):
