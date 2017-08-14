@@ -1,23 +1,67 @@
 import ast
-import os
 import json
+import os
+import re
 import zipfile
 
 from hashlib import md5
 
+import click
+
 # The file that contains json data
 PLUGIN_FILE_NAME = "PLUGINS.json"
 
+URL_REGEX = r"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)"
+VERSION_REGEX = r"(\d+\.(\d+\.)*\d+)"
 
-KNOWN_DATA = [
-    'PLUGIN_NAME',
-    'PLUGIN_AUTHOR',
-    'PLUGIN_VERSION',
-    'PLUGIN_API_VERSIONS',
-    'PLUGIN_LICENSE',
-    'PLUGIN_LICENSE_URL',
-    'PLUGIN_DESCRIPTION',
-]
+
+# ===================================
+# Classes to validate manifest inputs
+# ===================================
+
+
+class VersionString(click.ParamType):
+    name = "version_string"
+
+    def convert(self, value, param, ctx):
+        if not re.match(VERSION_REGEX, value):
+            self.fail('%s is not a valid version string' % value, param, ctx)
+        else:
+            return value
+
+
+class APIVersions(click.ParamType):
+    name = "api_versions"
+
+    def convert(self, value, param, ctx):
+        api_versions = [v.strip() for v in value.split(",")]
+        if not len(api_versions):
+            self.fail('%s are not valid api versions' % value, param, ctx)
+        for api_version in api_versions:
+            if not re.match(VERSION_REGEX, api_version):
+                self.fail('%s is not a valid API version' % api_version, param, ctx)
+        return api_versions
+
+
+class URLString(click.ParamType):
+    name = "url_string"
+
+    def convert(self, value, param, ctx):
+        if not re.match(URL_REGEX, value):
+            self.fail('%s is not a valid URL' % value, param, ctx)
+        else:
+            return value
+
+
+KNOWN_DATA = {
+    'PLUGIN_NAME': {'name': 'Plugin Name', 'type': str},
+    'PLUGIN_AUTHOR': {'name': 'Plugin Author Name', 'type': str},
+    'PLUGIN_VERSION': {'name': 'Plugin Version', 'type': VersionString()},
+    'PLUGIN_API_VERSIONS': {'name': 'comma-separated Supported API Versions', 'type': APIVersions()},
+    'PLUGIN_LICENSE': {'name': 'Plugin License', 'type': str},
+    'PLUGIN_LICENSE_URL': {'name': 'License URL', 'type': URLString()},
+    'PLUGIN_DESCRIPTION': {'name': 'Plugin Description', 'type': str},
+}
 
 
 def get_plugin_data(filepath):
@@ -144,8 +188,24 @@ def validate_plugin(archive_path):
     return False
 
 
-def package_folder(plugin_dir, manifest_path=None, dest=None):
+@click.group()
+def cli():
+    pass
 
+
+@cli.command()
+@click.argument('plugin_dir', type=click.Path(exists=True))
+@click.argument('manifest_path', type=click.Path(exists=True))
+@click.argument('output_path', type=click.Path(exists=True), required=False)
+def package_folder(plugin_dir, manifest_path, output_path=None):
+    """Creates a plugin package from a given unpackaged plugin folder
+
+    \b
+    Args:
+        plugin_dir: path to the unpackaged plugin directory
+        manifest_path: path to the json manifest for a given plugin
+        output_path: output path for the packaged plugin.
+    """
     plugin_files = []
     parent_dir = os.path.dirname(plugin_dir)
 
@@ -154,10 +214,10 @@ def package_folder(plugin_dir, manifest_path=None, dest=None):
             file_path = os.path.join(root, filename)
             plugin_files.append(file_path)
 
-    if not dest:
+    if not output_path:
         archive_path = os.path.basename(os.path.normpath(plugin_dir)) + ".picard.zip"
     else:
-        archive_path = dest
+        archive_path = output_path
 
     archive = zipfile.ZipFile(archive_path, "w")
 
@@ -188,7 +248,16 @@ def package_folder(plugin_dir, manifest_path=None, dest=None):
     info_list = archive.infolist()
 
 
+@cli.command()
+@click.argument('archive_path', type=click.Path(exists=True))
 def verify_package(archive_path):
+    """Verifies the checksum of a packaged plugin and verifies its
+        integrity
+
+    \b
+    Args:
+        archive_path: path to the packaged plugin zip to be verified
+    """
     archive = zipfile.ZipFile(archive_path)
     info_list = [{'filename': file.filename, 'crc': file.CRC} for file in archive.infolist() if file.filename != "MANIFEST.json"]
     with archive.open('MANIFEST.json') as f:
@@ -198,3 +267,66 @@ def verify_package(archive_path):
         else:
             return False
     return False
+
+
+def load_manifest(archive_path):
+    archive = zipfile.ZipFile(archive_path)
+    with archive.open('MANIFEST.json') as f:
+        manifest_data = json.loads(str(f.read().decode()))
+        return manifest_data
+
+
+def _create_manifest(manifest_path, manifest_data=None, missing_fields=None):
+    if not manifest_data:
+        manifest_data = {}
+    if not missing_fields:
+        missing_fields = KNOWN_DATA
+    for key, value in KNOWN_DATA.items():
+        if key in missing_fields:
+            manifest_data[key] = click.prompt("Please input %s" % value['name'], type=value['type'])
+    with open(manifest_path, 'w') as f:
+        json.dump(manifest_data, f, indent=2)
+    return manifest_data
+
+
+@cli.command()
+@click.argument('manifest_path', type=click.Path())
+def create_basic_manifest(manifest_path):
+    """Creates a manifest file for a plugin with an interactive wizard.
+
+    \b
+    Args:
+        manifest_path: path where the json manifest will be created
+    """
+    _create_manifest(manifest_path)
+
+
+@cli.command()
+@click.argument('manifest_path', type=click.Path(exists=True))
+def verify_manifest(manifest_path):
+    """Verifies if the manifest file for a plugin is valid and
+        prompts for missing fields.
+
+    \b
+    Args:
+        manifest_path: path to the json manifest to be verified
+    """
+    try:
+        manifest_data = json.load(open(manifest_path))
+    except (FileNotFoundError, OSError):
+        click.echo("Unable to find or read manifest file.")
+    except json.decoder.JSONDecodeError:
+        click.echo("Manifest is damaged. Invalid JSON file.")
+    else:
+        missing_fields = set(KNOWN_DATA.keys()) - set(manifest_data.keys())
+        if missing_fields:
+            click.echo("Manifest incomplete. Following data not found: %s" % ", ".join(missing_fields))
+            if click.confirm("Would you like to fill this data now?"):
+                manifest_data = _create_manifest(manifest_path, manifest_data, missing_fields)
+        click.echo("Manifest Verified!")
+        click.echo("="*20)
+        click.echo("MANIFEST: {}".format(manifest_path))
+        click.echo("-"*20)
+        for key, value in manifest_data.items():
+            click.echo("{}: {}".format(key, value))
+        click.echo("="*20)
