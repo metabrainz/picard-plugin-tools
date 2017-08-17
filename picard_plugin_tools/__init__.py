@@ -207,6 +207,7 @@ def package_folder(plugin_dir, manifest_path, output_path=None):
         output_path: output path for the packaged plugin.
     """
     plugin_files = []
+    plugin_dir = os.path.abspath(plugin_dir)
     parent_dir = os.path.dirname(plugin_dir)
 
     for root, dirs, filenames in os.walk(plugin_dir):
