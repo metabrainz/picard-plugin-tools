@@ -91,11 +91,6 @@ def get_plugin_data(filepath):
         return data
 
 
-def create_manifest(filepath, manifest_data):
-    with open(os.path.join(os.path.dirname(filepath), 'MANIFEST.json')) as f:
-        f.write(json.dumps(manifest_data, sort_keys=True, indent=2))
-
-
 def build_json(source_dir, dest_dir, supported_versions=None):
     """Traverse the plugins directory to generate json data."""
 
@@ -128,7 +123,8 @@ def build_json(source_dir, dest_dir, supported_versions=None):
                             print("Unable to parse %s" % filename)
         if files and data:
             print("Added: " + dirname)
-            create_manifest(dirname, data)
+            with open(os.path.join(os.path.dirname(dirname), 'MANIFEST.json')) as f:
+                f.write(json.dumps(data, sort_keys=True, indent=2))
             data['files'] = files
             plugins[dirname] = data
     out_path = os.path.join(dest_dir, PLUGIN_FILE_NAME)
@@ -193,19 +189,7 @@ def cli():
     pass
 
 
-@cli.command()
-@click.argument('plugin_dir', type=click.Path(exists=True))
-@click.argument('manifest_path', type=click.Path(exists=True))
-@click.argument('output_path', type=click.Path(exists=True), required=False)
 def package_folder(plugin_dir, manifest_path, output_path=None):
-    """Creates a plugin package from a given unpackaged plugin folder
-
-    \b
-    Args:
-        plugin_dir: path to the unpackaged plugin directory
-        manifest_path: path to the json manifest for a given plugin
-        output_path: output path for the packaged plugin.
-    """
     plugin_files = []
     plugin_dir = os.path.abspath(plugin_dir)
     parent_dir = os.path.dirname(plugin_dir)
@@ -215,10 +199,11 @@ def package_folder(plugin_dir, manifest_path, output_path=None):
             file_path = os.path.join(root, filename)
             plugin_files.append(file_path)
 
+    archive_name = os.path.basename(os.path.normpath(plugin_dir)) + ".picard.zip"
     if not output_path:
-        archive_path = os.path.basename(os.path.normpath(plugin_dir)) + ".picard.zip"
+        archive_path = archive_name
     else:
-        archive_path = output_path
+        archive_path = os.path.join(output_path, archive_name)
 
     archive = zipfile.ZipFile(archive_path, "w")
 
@@ -246,19 +231,26 @@ def package_folder(plugin_dir, manifest_path, output_path=None):
         archive.write(manifest_path,
                       'MANIFEST.json',
                       compress_type=zipfile.ZIP_DEFLATED)
-    info_list = archive.infolist()
+    return manifest_data
 
 
-@cli.command()
-@click.argument('archive_path', type=click.Path(exists=True))
-def verify_package(archive_path):
-    """Verifies the checksum of a packaged plugin and verifies its
-        integrity
+@cli.command('package_folder')
+@click.argument('plugin_dir', type=click.Path(exists=True))
+@click.argument('manifest_path', type=click.Path(exists=True))
+@click.argument('output_path', type=click.Path(exists=True), required=False)
+def _package_folder(plugin_dir, manifest_path, output_path=None):
+    """Creates a plugin package from a given unpackaged plugin folder
 
     \b
     Args:
-        archive_path: path to the packaged plugin zip to be verified
+        plugin_dir: path to the unpackaged plugin directory
+        manifest_path: path to the json manifest for a given plugin
+        output_path: output path for the packaged plugin.
     """
+    package_folder(plugin_dir, manifest_path, output_path)
+
+
+def verify_package(archive_path):
     archive = zipfile.ZipFile(archive_path)
     info_list = [{'filename': file.filename, 'crc': file.CRC} for file in archive.infolist() if file.filename != "MANIFEST.json"]
     with archive.open('MANIFEST.json') as f:
@@ -270,6 +262,19 @@ def verify_package(archive_path):
     return False
 
 
+@cli.command("verify_package")
+@click.argument('archive_path', type=click.Path(exists=True))
+def _verify_package(archive_path):
+    """Verifies the checksum of a packaged plugin and verifies its
+        integrity
+
+    \b
+    Args:
+        archive_path: path to the packaged plugin zip to be verified
+    """
+    verify_package(archive_path)
+
+
 def load_manifest(archive_path):
     archive = zipfile.ZipFile(archive_path)
     with archive.open('MANIFEST.json') as f:
@@ -277,7 +282,7 @@ def load_manifest(archive_path):
         return manifest_data
 
 
-def _create_manifest(manifest_path, manifest_data=None, missing_fields=None):
+def create_manifest(manifest_path, manifest_data=None, missing_fields=None):
     if not manifest_data:
         manifest_data = {}
     if not missing_fields:
@@ -290,16 +295,16 @@ def _create_manifest(manifest_path, manifest_data=None, missing_fields=None):
     return manifest_data
 
 
-@cli.command()
+@cli.command('create_manifest')
 @click.argument('manifest_path', type=click.Path())
-def create_basic_manifest(manifest_path):
+def _create_manifest(manifest_path):
     """Creates a manifest file for a plugin with an interactive wizard.
 
     \b
     Args:
         manifest_path: path where the json manifest will be created
     """
-    _create_manifest(manifest_path)
+    create_manifest(manifest_path)
 
 
 @cli.command()
@@ -325,9 +330,9 @@ def verify_manifest(manifest_path):
             if click.confirm("Would you like to fill this data now?"):
                 manifest_data = _create_manifest(manifest_path, manifest_data, missing_fields)
         click.echo("Manifest Verified!")
-        click.echo("="*20)
+        click.echo("=" * 20)
         click.echo("MANIFEST: {}".format(manifest_path))
-        click.echo("-"*20)
+        click.echo("-" * 20)
         for key, value in manifest_data.items():
             click.echo("{}: {}".format(key, value))
-        click.echo("="*20)
+        click.echo("=" * 20)
